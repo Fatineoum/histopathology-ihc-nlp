@@ -1,0 +1,20 @@
+# Data files — never commit patient data to version control
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Outputs that can be regenerated
+*.log
