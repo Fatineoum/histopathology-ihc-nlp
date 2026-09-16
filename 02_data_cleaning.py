@@ -1,6 +1,6 @@
 """
 02_data_cleaning.py
-IHC NLP Project — Data Cleaning and Extraction
+IHC NLP Project : Data Cleaning and Extraction
 ------------------------------------------------
 Extracts the columns we care about from both raw spreadsheets,
 deduplicates by patient ID, normalises nil/NA values, flags
@@ -8,10 +8,10 @@ anonymous marker placeholders (x1, x2, x3...), and produces
 a clean pilot subset for leiomyosarcoma HG.
 
 Outputs (all saved to data/):
-    cleaned_ground_truth.csv   — full cleaned ground truth
-    cleaned_no_immuno.csv      — full cleaned no-immuno reports
-    flagged_anonymous.csv      — GT cases with x1/x2/x3 markers (for review)
-    pilot_leiomyosarcoma.csv   — leiomyosarcoma HG pilot subset
+    cleaned_ground_truth.csv   : full cleaned ground truth
+    cleaned_no_immuno.csv      : full cleaned no-immuno reports
+    flagged_anonymous.csv      : GT cases with x1/x2/x3 markers (for review)
+    pilot_leiomyosarcoma.csv   : leiomyosarcoma HG pilot subset
 
 Usage:
     python 02_data_cleaning.py
@@ -124,7 +124,7 @@ def clean_ground_truth(path):
     df["positive_ihc"] = df["positive_ihc"].apply(normalise_nil)
     df["negative_ihc"] = df["negative_ihc"].apply(normalise_nil)
 
-    # Parse marker lists (for stats — stored as pipe-joined string for CSV compatibility)
+    # Parse marker lists (for stats : stored as pipe-joined string for CSV compatibility)
     df["positive_list"] = df["positive_ihc"].apply(parse_markers)
     df["negative_list"] = df["negative_ihc"].apply(parse_markers)
 

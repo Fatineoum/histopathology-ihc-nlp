@@ -1,6 +1,6 @@
 """
 01_data_exploration.py
-IHC NLP Project — Data Loading and Exploration
+IHC NLP Project : Data Loading and Exploration
 ------------------------------------------------
 Run this first to sanity-check both spreadsheets before any NLP work.
 

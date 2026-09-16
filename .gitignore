@@ -1,5 +1,11 @@
-# Data files — never commit patient data to version control
+# Patient data — never commit to version control (NHS IG / GDPR)
 data/
+*.xlsx
+*.xls
+*.csv
+
+# Model checkpoints (large, regeneratable)
+models/
 
 # Python
 __pycache__/
@@ -18,3 +24,14 @@ Thumbs.db
 
 # Outputs that can be regenerated
 *.log
+
+# Temporary Office lock files
+~$*
+.~lock.*
+
+# Course materials (copyrighted)
+Phase 1/
+Phase 2/
+
+# Internal tooling notes
+AGENTS.md
