@@ -233,7 +233,7 @@ def collate_batch(batch):
 def load_pilot() -> pd.DataFrame:
     path = DATA_DIR / "pilot_leiomyosarcoma.csv"
     df   = pd.read_csv(path, dtype=str).fillna("")
-    df   = df[df["patient_id"] != "S00157601"].reset_index(drop=True)
+    df   = df[df["patient_id"] != "EXCLUDED_CASE_1"].reset_index(drop=True)
     print(f"Pilot cases loaded: {len(df)}")
     return df
 
@@ -242,7 +242,7 @@ def load_full_dataset() -> pd.DataFrame:
     """
     Load the full cleaned ground truth for cross-diagnosis training.
     Excludes: anonymous-marker cases (x1/x2/x3), cases with no IHC text,
-    and S00157601 (known data entry error).
+    and EXCLUDED_CASE_1 (known data entry error).
     """
     path = DATA_DIR / "cleaned_ground_truth.csv"
     df   = pd.read_csv(path, dtype=str).fillna("")
@@ -252,7 +252,7 @@ def load_full_dataset() -> pd.DataFrame:
     # Exclude cases with no IHC text
     df = df[df["ihc_text"].str.strip() != ""]
     # Exclude known bad case
-    df = df[df["patient_id"] != "S00157601"].reset_index(drop=True)
+    df = df[df["patient_id"] != "EXCLUDED_CASE_1"].reset_index(drop=True)
     print(f"Full dataset loaded: {len(df)} cases ({before - len(df)} excluded)")
     print(f"Diagnoses covered:   {df['diagnosis'].nunique()}")
     return df
@@ -367,9 +367,26 @@ def run_training(df: pd.DataFrame, tokenizer, model_dir: Path = MODEL_DIR,
         num_training_steps=total_steps,
     )
 
-    best_val_f1 = 0.0
+    # Resume support: check for an existing per-epoch checkpoint
+    resume_dir   = model_dir.parent / (model_dir.name + "_resume")
+    start_epoch  = 1
+    best_val_f1  = 0.0
 
-    for epoch in range(1, EPOCHS + 1):
+    if resume_dir.exists() and (resume_dir / "trainer_state.json").exists():
+        import json as _json
+        state = _json.loads((resume_dir / "trainer_state.json").read_text())
+        start_epoch = state.get("epoch", 0) + 1
+        best_val_f1 = state.get("best_val_f1", 0.0)
+        print(f"Resuming from epoch {start_epoch} (best F1 so far: {best_val_f1:.4f})")
+        model = AutoModelForTokenClassification.from_pretrained(resume_dir).to(DEVICE)
+        # Advance scheduler to match completed steps
+        completed = (start_epoch - 1) * len(train_loader)
+        for _ in range(completed):
+            scheduler.step()
+    else:
+        resume_dir.mkdir(parents=True, exist_ok=True)
+
+    for epoch in range(start_epoch, EPOCHS + 1):
         model.train()
         epoch_loss = 0.0
 
@@ -393,12 +410,20 @@ def run_training(df: pd.DataFrame, tokenizer, model_dir: Path = MODEL_DIR,
         val_f1   = token_level_f1(model, val_loader)
         print(f"Epoch {epoch}/{EPOCHS}  loss={avg_loss:.4f}  val_token_F1={val_f1:.4f}")
 
+        # Save per-epoch resume checkpoint (always, after every epoch)
+        import json as _json
+        model.save_pretrained(resume_dir)
+        tokenizer.save_pretrained(resume_dir)
+        (resume_dir / "trainer_state.json").write_text(
+            _json.dumps({"epoch": epoch, "best_val_f1": max(best_val_f1, val_f1)})
+        )
+
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             model_dir.mkdir(parents=True, exist_ok=True)
             model.save_pretrained(model_dir)
             tokenizer.save_pretrained(model_dir)
-            print(f"  Checkpoint saved (epoch {epoch}, F1={val_f1:.4f})")
+            print(f"  Best checkpoint saved (epoch {epoch}, F1={val_f1:.4f})")
 
     print(f"\nBest validation token F1: {best_val_f1:.4f}")
     print(f"Model saved to: {model_dir}")
@@ -556,11 +581,21 @@ def main():
         "--full", action="store_true",
         help="Use full ground truth dataset (all diagnoses) instead of pilot"
     )
+    parser.add_argument(
+        "--epochs", type=int, default=None,
+        help=f"Number of training epochs (default: {EPOCHS})"
+    )
     args = parser.parse_args()
 
     if not (args.train or args.eval):
         parser.print_help()
         return
+
+    if args.epochs is not None:
+        import builtins
+        # Update module-level EPOCHS used by run_training
+        import sys as _sys
+        _sys.modules[__name__].__dict__["EPOCHS"] = args.epochs
 
     print(f"Device: {DEVICE}")
     if DEVICE.type == "cuda":
@@ -570,6 +605,8 @@ def main():
     model     = None
     test_df   = None
 
+    epoch_suffix = f"_e{EPOCHS}" if args.epochs is not None else ""
+
     if args.full:
         full_df = load_full_dataset()
         # Hold out a test set before any training
@@ -578,14 +615,14 @@ def main():
         )
         print(f"Train+val: {len(train_val_df)} | Test (held out): {len(test_df)}")
         df        = train_val_df
-        model_dir = MODEL_DIR_FULL
-        pred_file = "bert_full_predictions.csv"
-        err_file  = "bert_full_errors.csv"
+        model_dir = Path(f"models/clinicalbert_ihc_full{epoch_suffix}")
+        pred_file = f"bert_full_predictions{epoch_suffix}.csv"
+        err_file  = f"bert_full_errors{epoch_suffix}.csv"
     else:
         df        = load_pilot()
-        model_dir = MODEL_DIR
-        pred_file = "bert_predictions.csv"
-        err_file  = "bert_errors.csv"
+        model_dir = Path(f"models/clinicalbert_ihc{epoch_suffix}")
+        pred_file = f"bert_predictions{epoch_suffix}.csv"
+        err_file  = f"bert_errors{epoch_suffix}.csv"
 
     if args.train:
         model = run_training(df, tokenizer, model_dir=model_dir)

@@ -5,7 +5,7 @@
 
 ## Project Status
 
-Final MSc project in progress. Final submission scheduled for October 2026. Core ETL, database, NLP, and dashboard components are implemented; evaluation runs (8 and 16 epoch training), results analysis, and dissertation write-up are being finalised.
+Submitted 11 October 2026 as part of the MSc Computer Science programme at Birkbeck, University of London. All pipeline components are implemented and evaluated. ClinicalBERT fine-tuning complete (8 epochs, overall F1=0.873 on held-out test set on 809 held-out cases).
 
 ## Overview
 
@@ -29,16 +29,19 @@ flowchart TD
 
 ## Results
 
-Evaluation against a manually labelled ground truth set (positive and negative IHC outcomes per case):
+Evaluation on a stratified held-out test set of 809 cases (15% of the 5,389-case ground-truth dataset, withheld from training and model selection). Metrics are micro-averaged across positive and negative marker extraction.
 
-| Pipeline | Precision | Recall | F1 |
-|---|---|---|---|
-| Rule-based only | — | — | — |
-| ClinicalBERT (8 epochs) | — | — | — |
-| ClinicalBERT (16 epochs) | — | — | — |
-| Hybrid (BERT-primary) | — | — | — |
+| Pipeline | Pos F1 | Neg F1 | Overall F1 | Evaluation set |
+|---|---|---|---|---|
+| Rule-based only | 0.737 | 0.854 | 0.803 | Pilot (LMS HG, inflated) |
+| Rule-based only | — | — | 0.699 | Full dataset, normalised |
+| ClinicalBERT (8 epochs) | 0.870 | 0.874 | **0.873** | Held-out test set, 809 cases |
+| ClinicalBERT (8 epochs) | 0.912 | 0.904 | 0.907 | Full dataset (inflated) |
+| Hybrid (BERT-primary) | 0.844 | 0.876 | 0.864 | Full dataset, normalised |
 
-*Results to be updated after final training runs. Run `python evaluate.py` to reproduce.*
+ClinicalBERT validation F1 by epoch: 0.897, 0.913, 0.917, 0.923, **0.924** (peak), 0.923, 0.920, 0.925. Performance plateaued after epoch 5, confirming 8 epochs as sufficient.
+
+Run `python evaluate.py` to reproduce rule-based results. ClinicalBERT inference requires the trained checkpoint in `models/`.
 
 ## Structure
 

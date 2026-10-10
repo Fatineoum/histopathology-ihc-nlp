@@ -236,11 +236,11 @@ def load_data(full: bool) -> pd.DataFrame:
         df = pd.read_csv(DATA_DIR / "cleaned_ground_truth.csv", dtype=str).fillna("")
         df = df[df["has_anonymous"].str.strip().str.lower() != "true"]
         df = df[df["ihc_text"].str.strip() != ""]
-        df = df[df["patient_id"] != "S00157601"].reset_index(drop=True)
+        df = df[df["patient_id"] != "EXCLUDED_CASE_1"].reset_index(drop=True)
         print(f"Full ground truth: {len(df)} cases, {df['diagnosis'].nunique()} diagnoses")
     else:
         df = pd.read_csv(DATA_DIR / "pilot_leiomyosarcoma.csv", dtype=str).fillna("")
-        df = df[df["patient_id"] != "S00157601"].reset_index(drop=True)
+        df = df[df["patient_id"] != "EXCLUDED_CASE_1"].reset_index(drop=True)
         print(f"Pilot: {len(df)} cases")
     return df
 

@@ -29,7 +29,7 @@ DB_PATH = Path("data/ihc_database.db")
 # ── Page config ────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="RNOH IHC Dashboard",
+    page_title="IHC Knowledge Base Dashboard",
     page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -137,7 +137,7 @@ st.markdown("""
 # ── Feature flags ─────────────────────────────────────────────────────────────
 # Set to True to re-enable Ki-67 histogram and box plots in the dashboard.
 # Data is preserved in the ki67_results table; load_ki67() still works.
-SHOW_KI67 = False
+SHOW_KI67 = True
 
 
 # ── Database helpers ───────────────────────────────────────────────────────────
@@ -387,7 +387,7 @@ def load_all_cases_global(
 
 
 # Right-gene-is-driver fusions: these genes are the diagnostic target regardless of partner
-_RIGHT_GENE_DRIVERS = {'ALK', 'TFE3', 'VGLL3', 'NUTM1', 'NUT'}
+_RIGHT_GENE_DRIVERS = {'ALK', 'TFE3', 'VGLL3', 'NUTM1', 'NUT', 'FOXO1', 'FKHR'}
 
 import re as _re
 
@@ -811,7 +811,7 @@ def warning(text: str):
 with st.sidebar:
     st.markdown(
         '<p style="font-size:1.3rem;font-weight:700;color:#0f766e;margin:0;">🔬 IHC Dashboard</p>'
-        '<p style="font-size:0.75rem;color:#64748b;margin:2px 0 0;">RNOH · Birkbeck MSc 2026</p>',
+        '<p style="font-size:0.75rem;color:#64748b;margin:2px 0 0;">Birkbeck MSc 2026</p>',
         unsafe_allow_html=True,
     )
     st.divider()
@@ -898,7 +898,8 @@ if tab_choice == "Diagnosis Panel":
     with c2:
         top_n = st.slider("Top N markers", 5, 40, 20)
     with c3:
-        show_gt = st.checkbox("Overlay ground truth", value=False)
+        show_gt  = st.checkbox("Overlay ground truth", value=False)
+        show_ki67 = st.checkbox("Show Ki-67 index", value=True)
 
     # Controls — row 2: optional marker filter
     # Use the canonical RNOH whitelist intersected with what actually appears
@@ -989,8 +990,8 @@ if tab_choice == "Diagnosis Panel":
     fig.update_xaxes(range=[0, 100], ticksuffix="%")
     st.plotly_chart(fig, use_container_width=True)
 
-    # Ki-67 section (disabled; set SHOW_KI67 = True at top of file to re-enable)
-    if SHOW_KI67:
+    # Ki-67 section (toggle via checkbox above)
+    if show_ki67:
         ki67_df = load_ki67(selected_diag)
         if not ki67_df.empty:
             st.divider()
@@ -1074,7 +1075,7 @@ if tab_choice == "Diagnosis Panel":
             fig_sub_lms.update_xaxes(range=[0, 100], ticksuffix="%")
             st.plotly_chart(fig_sub_lms, use_container_width=True)
 
-            if SHOW_KI67:
+            if show_ki67:
                 ki67_lms = load_ki67(selected_diag)
                 if not ki67_lms.empty:
                     st.divider()
@@ -1530,6 +1531,29 @@ if tab_choice == "Fusion Browser":
     _mol_all["gene"] = _mol_all["positive_result"].apply(normalize_molecular)
     _mol_all["detail_label"] = _mol_all["positive_result"].apply(get_detail_label)
 
+    # For Browse by Gene: expand fusions so each :: partner is also searchable.
+    # e.g. PAX3::FOXO1 creates a row with gene="PAX3" AND gene="FOXO1".
+    def _expand_genes(df):
+        extra = []
+        for _, row in df.iterrows():
+            pr = str(row["positive_result"]) if row["positive_result"] else ""
+            if "::" in pr:
+                left = pr.split("::")[0].strip().split()[0].rstrip(",.;()")
+                right = pr.split("::", 1)[1].strip().split()[0].rstrip(",.;()")
+                both = {left, right}
+                # Add a row for whichever gene normalize_molecular didn't pick
+                picked = row["gene"]
+                for alt in both - {picked}:
+                    if alt:
+                        r = row.copy()
+                        r["gene"] = alt
+                        extra.append(r)
+        if extra:
+            return pd.concat([df, pd.DataFrame(extra)], ignore_index=True)
+        return df
+
+    _mol_expanded = _expand_genes(_mol_all)
+
     if _mol_all.empty:
         st.info("No confirmed molecular results in the dataset yet.")
     else:
@@ -1537,7 +1561,7 @@ if tab_choice == "Fusion Browser":
 
         # ── Sub-tab 1: Browse by Gene (Marker-Browser style) ──────────────────
         with _subtab_gene:
-            _all_genes = sorted(_mol_all["gene"].dropna().unique())
+            _all_genes = sorted(_mol_expanded["gene"].dropna().unique())
             _oc_opts_g = ["positive", "negative", "both"]
 
             col_g1, col_g2 = st.columns([3, 1])
@@ -1546,7 +1570,7 @@ if tab_choice == "Fusion Browser":
             with col_g2:
                 sel_oc_gene = st.radio("Outcome", _oc_opts_g, horizontal=True, key="fb_gene_oc")
 
-            _gene_df = _mol_all[_mol_all["gene"] == sel_gene_fb].copy()
+            _gene_df = _mol_expanded[_mol_expanded["gene"] == sel_gene_fb].copy()
             if sel_oc_gene != "both":
                 _gene_df = _gene_df[_gene_df["outcome"] == sel_oc_gene]
 
@@ -1637,7 +1661,7 @@ if tab_choice == "Fusion Browser":
         # ── Sub-tab 2: By Diagnosis ────────────────────────────────────────────
         with _subtab_diag:
             _diags_with_mol = sorted(
-                _mol_pos["canonical_diagnosis"].unique(),
+                _mol_all["canonical_diagnosis"].unique(),
                 key=lambda x: diag_names_fb.get(x, x),
             )
             _diag_opts = [diag_names_fb.get(d, d) for d in _diags_with_mol]
@@ -1693,25 +1717,28 @@ if tab_choice == "Fusion Browser":
                         color_discrete_sequence=px.colors.qualitative.Set2,
                     )
                 else:
-                    # One bar per gene
+                    # One bar per specific finding (full fusion label)
                     _grouped_agg = (
-                        _dx_mol.groupby(["gene", "outcome"])["patient_id"]
+                        _dx_mol.groupby(["detail_label", "outcome"])["patient_id"]
                         .nunique().reset_index()
                         .rename(columns={"patient_id": "n_cases"})
                         .sort_values("n_cases")
                     )
+                    _single_color = (
+                        "#f87171" if sel_oc_diag == "negative" else "#3b82f6"
+                    )
                     fig_dx = px.bar(
                         _grouped_agg,
                         x="n_cases",
-                        y="gene",
+                        y="detail_label",
                         color="outcome" if sel_oc_diag == "both" else None,
                         orientation="h",
                         barmode="group",
                         color_discrete_map={"positive": "#3b82f6", "negative": "#f87171"},
-                        color_discrete_sequence=["#3b82f6"],
-                        labels={"n_cases": "Cases", "gene": "Gene", "outcome": "Outcome"},
+                        color_discrete_sequence=[_single_color],
+                        labels={"n_cases": "Cases", "detail_label": "Finding", "outcome": "Outcome"},
                         title=f"Molecular findings — {sel_diag_fb}",
-                        height=max(320, n_genes_dx * 52),
+                        height=max(320, _grouped_agg["detail_label"].nunique() * 40),
                     )
 
                 fig_dx.update_layout(
@@ -1720,7 +1747,7 @@ if tab_choice == "Fusion Browser":
                     plot_bgcolor="#f8fafc", paper_bgcolor="#ffffff",
                     showlegend=(show_detail or sel_oc_diag == "both"),
                 )
-                fig_dx.update_xaxes(dtick=1)
+                fig_dx.update_xaxes(tickformat="d")
                 st.plotly_chart(fig_dx, use_container_width=True)
 
                 st.divider()
@@ -2630,5 +2657,5 @@ if tab_choice == "References":
     st.caption(
         "These references underpin the expected IHC frequencies shown in the "
         "Literature Comparison view. The literature profiles are not derived from "
-        "RNOH institutional data and represent published consensus values only."
+        "Institutional data and represent published consensus values only."
     )
