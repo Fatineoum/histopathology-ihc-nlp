@@ -555,10 +555,3 @@ Diagnosis is primarily morphological: cytologic atypia, mitotic index (>10/mm2 f
 **Schwannoma**
 Case S00159173 has a confirmed NF2 nonsense mutation (c.892C>T, p.Gln298Ter) on NGS, consistent with NF2-associated schwannoma. Diagnosis is otherwise morphological and IHC-based (S100 diffuse positive, SOX10 positive).
 
----
-
-## To decide / revisit
-
-- Whether to include flagged anonymous cases after manual review
-- Expand morphology_notes extraction to other diagnoses beyond ASPS (future work)
-- Confirm with team which diagnoses routinely undergo molecular testing at RNOH (planned review, week of 25 August 2026)
