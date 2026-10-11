@@ -1,6 +1,6 @@
 # Development Notes : IHC NLP Project
 
-Fatine Oumlil | MSc Computer Science | Birkbeck, University of London
+Fatine Oumlil | MSc Computer Science | University of London
 These notes record key decisions and rationale made during development,
 to support the methodology section of the final report.
 

@@ -5,7 +5,7 @@
 
 ## Project Status
 
-Submitted 11 October 2026 as part of the MSc Computer Science programme at Birkbeck, University of London. All pipeline components are implemented and evaluated. ClinicalBERT fine-tuning complete (8 epochs, overall F1=0.873 on held-out test set on 809 held-out cases).
+Submitted 11 October 2026 as part of the MSc Computer Science programme at the University of London. All pipeline components are implemented and evaluated. ClinicalBERT fine-tuning complete (8 epochs, overall F1=0.873 on held-out test set on 809 held-out cases).
 
 ## Overview
 

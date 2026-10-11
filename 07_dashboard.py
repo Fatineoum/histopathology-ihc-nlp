@@ -811,7 +811,7 @@ def warning(text: str):
 with st.sidebar:
     st.markdown(
         '<p style="font-size:1.3rem;font-weight:700;color:#0f766e;margin:0;">🔬 IHC Dashboard</p>'
-        '<p style="font-size:0.75rem;color:#64748b;margin:2px 0 0;">Birkbeck MSc 2026</p>',
+        '<p style="font-size:0.75rem;color:#64748b;margin:2px 0 0;">MSc 2026 · University of London</p>',
         unsafe_allow_html=True,
     )
     st.divider()
@@ -1075,25 +1075,6 @@ if tab_choice == "Diagnosis Panel":
             fig_sub_lms.update_xaxes(range=[0, 100], ticksuffix="%")
             st.plotly_chart(fig_sub_lms, use_container_width=True)
 
-            if show_ki67:
-                ki67_lms = load_ki67(selected_diag)
-                if not ki67_lms.empty:
-                    st.divider()
-                    st.subheader("Ki-67 by subclassification")
-                    fig_ki_box = px.box(
-                        ki67_lms, x="subclassification", y="ki67_pct",
-                        color="subclassification", points="all",
-                        labels={"ki67_pct": "Ki-67 %", "subclassification": "Subclassification"},
-                        title=f"Ki-67 distribution by subclassification — {disp}",
-                        color_discrete_sequence=px.colors.qualitative.Set2,
-                    )
-                    fig_ki_box.update_layout(
-                        showlegend=False,
-                        margin=dict(l=0, r=20, t=50, b=80),
-                        plot_bgcolor="#f8fafc", paper_bgcolor="#ffffff",
-                        xaxis_tickangle=-30,
-                    )
-                    st.plotly_chart(fig_ki_box, use_container_width=True)
         else:
             st.info("No cases for this subclassification.")
 
@@ -1295,54 +1276,6 @@ elif tab_choice == "Literature Comparison":
             "(5th ed. 2020); Fletcher CDM et al.; Hornick JL."
         )
 
-    # ── Molecular profile ─────────────────────────────────────────────────────
-    mol_kb_lc = load_molecular_dx_markers(selected_diag)
-    mol_pos_lc = load_molecular_positives(selected_diag)
-    if not mol_kb_lc.empty or not mol_pos_lc.empty:
-        st.divider()
-        st.subheader("Molecular profile")
-
-        if not mol_kb_lc.empty:
-            st.caption("Expected fusions and rearrangements (knowledge base):")
-            ROLE_COLOR_LC = {
-                "confirmatory": "#0f766e",
-                "supportive":   "#4f46e5",
-                "exclusion":    "#dc2626",
-            }
-            for _, kr in mol_kb_lc.iterrows():
-                color = ROLE_COLOR_LC.get(kr["role"], "#64748b")
-                pct_txt = f" — seen in ~{int(kr['prevalence_pct'])}% of cases" if pd.notna(kr.get("prevalence_pct")) and kr.get("prevalence_pct") else ""
-                n_confirmed = 0
-                if not mol_pos_lc.empty:
-                    match = mol_pos_lc[mol_pos_lc["positive_result"].str.contains(
-                        kr["alteration"].split(" ")[0], case=False, na=False
-                    )]
-                    n_confirmed = int(match["n_cases"].sum()) if not match.empty else 0
-                confirmed_txt = (
-                    f' <span style="background:#dcfce7;padding:1px 7px;border-radius:4px;'
-                    f'font-size:0.78rem;color:#166534">{n_confirmed} confirmed in dataset</span>'
-                    if n_confirmed else ""
-                )
-                st.markdown(
-                    f'<div style="border-left:3px solid {color};padding:5px 12px;'
-                    f'margin:4px 0;border-radius:0 6px 6px 0;background:#f8fafc">'
-                    f'<span style="font-size:0.72rem;font-weight:700;color:{color};'
-                    f'text-transform:uppercase">{kr["role"]}</span> '
-                    f'<span style="font-size:0.88rem;font-weight:600">{kr["alteration"]}</span>'
-                    f'<span style="font-size:0.8rem;color:#6b7280"> via {kr["test_type"]}{pct_txt}</span>'
-                    + confirmed_txt +
-                    f'<br><span style="font-size:0.78rem;color:#6b7280">{kr["note"]}</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-
-        if not mol_pos_lc.empty:
-            st.write("")
-            st.caption("Confirmed in institutional dataset:")
-            mol_pos_lc_display = mol_pos_lc.rename(
-                columns={"positive_result": "Fusion / alteration", "n_cases": "Cases confirmed"}
-            )
-            st.dataframe(mol_pos_lc_display, use_container_width=True, hide_index=True)
 
 
 # ── View 3: Case Browser (universal) ──────────────────────────────────────────
