@@ -1,4 +1,4 @@
-# IHC NLP Pipeline for Soft Tissue Tumour Pathology
+# IHC NLP Pipeline for Soft Tissue and Bone Tumour Pathology
 
 **Author:** Fatine Oumlil  
 **Degree:** MSc Computer Science
@@ -9,7 +9,7 @@ Submitted 11 October 2026 as part of the MSc Computer Science programme at Birkb
 
 ## Overview
 
-An end-to-end NLP pipeline for extracting structured immunohistochemistry (IHC) and molecular findings from free-text histopathology reports, with a prototype decision-support dashboard for soft tissue tumour pathology.
+An end-to-end NLP pipeline for extracting structured immunohistochemistry (IHC) and molecular findings from free-text histopathology reports, with a prototype decision-support dashboard for soft tissue and bone tumour pathology.
 
 All processing runs on-premise under institutional data governance and GDPR constraints — no patient data is sent to external APIs or cloud services.
 
