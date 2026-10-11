@@ -422,7 +422,7 @@ def normalize_molecular(text: str) -> str:
 
 
 def get_detail_label(text: str) -> str:
-    """Detail-mode display label — return the stored value as-is."""
+    """Detail-mode display label: return the stored value as-is."""
     return text or ""
 
 
@@ -761,6 +761,167 @@ def _suggest_markers(
     return sorted(suggestions, key=lambda x: x["power"], reverse=True)[:5]
 
 
+def _render_ddx_results(ddx_df: "pd.DataFrame", pos_snap: list, neg_snap: list,
+                        key_prefix: str = "da", patient_id: str | None = None) -> None:
+    """Shared DDx results renderer used by both Pipeline Runner and Diagnostic Assistant."""
+    diag_names_r = load_diagnoses().set_index("canonical_diagnosis")["display_name"].to_dict()
+    top3 = ddx_df.head(3)
+
+    st.subheader("Top 3 differential diagnoses")
+    for rank, (_, row) in enumerate(top3.iterrows(), start=1):
+        rank_label   = {1: "1st", 2: "2nd", 3: "3rd"}[rank]
+        border_color = {1: "#0f766e", 2: "#4f46e5", 3: "#0891b2"}[rank]
+        rank_bg      = {1: "#f0fdf4", 2: "#eef2ff", 3: "#f0f9ff"}[rank]
+        n_cov  = int(row.get("covered", 0))
+        n_tot  = int(row.get("n_input", 0))
+        st.markdown(
+            f'<div style="border-left:5px solid {border_color};'
+            f'padding:14px 18px;border-radius:8px;margin-bottom:10px;'
+            f'background:{rank_bg};box-shadow:0 1px 4px rgba(0,0,0,0.06)">'
+            f'<span style="font-size:0.7rem;font-weight:700;color:{border_color};'
+            f'text-transform:uppercase;letter-spacing:0.08em">'
+            f'{rank_label} DIFFERENTIAL</span>'
+            f'<span style="font-size:0.75rem;color:#9ca3af;margin-left:12px">'
+            f'{n_cov} of {n_tot} markers in literature</span><br>'
+            f'<span style="font-size:1.2rem;font-weight:700;color:#0f172a">{row["display_name"]}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            lit_val = row["lit_score"]
+            lit_str = f"{lit_val:.0f}%" if pd.notna(lit_val) else "n/a"
+            st.metric(
+                "Literature score", lit_str,
+                help="Weighted match rate against published marker profiles for this diagnosis. "
+                     "High-frequency markers count more. "
+                     "Ranking also penalises low coverage (few of your markers appear in literature).",
+            )
+        with sc2:
+            dat_val = row["data_score"]
+            dat_str = f"{dat_val:.0f}%" if pd.notna(dat_val) else "n/a"
+            st.metric(
+                "Our data score", dat_str,
+                help="Match rate against our institutional pipeline data. "
+                     "Shown only when >= 5 cases with this diagnosis were tested for at least "
+                     "2 of your provided markers. 'n/a' means insufficient institutional data.",
+            )
+        for markers_list, label, icon, css_class in [
+            (row["supporting"],    "Literature supports",    "✓", "badge-pos"),
+            (row["contradicting"], "Literature contradicts", "✗", "badge-neg"),
+        ]:
+            if markers_list:
+                st.markdown(
+                    f'<span style="font-size:0.78rem;color:#64748b">'
+                    f'{icon} <em>{label}</em> (% = published frequency for this diagnosis):</span><br>'
+                    + " ".join(
+                        f'<span class="{css_class}">{m}</span>'
+                        for m in markers_list
+                    ),
+                    unsafe_allow_html=True,
+                )
+        st.write("")
+
+    with st.expander("All diagnoses scored"):
+        all_disp = ddx_df[["display_name", "lit_score", "data_score",
+                            "combined_score", "covered", "n_input"]].copy()
+        all_disp["coverage"] = all_disp.apply(
+            lambda r: f"{int(r['covered'])}/{int(r['n_input'])}", axis=1
+        )
+        all_disp = all_disp[["display_name", "lit_score", "data_score",
+                              "combined_score", "coverage"]]
+        all_disp.columns = ["Diagnosis", "Lit score (%)", "Data score (%)",
+                             "Combined (rank)", "Lit coverage"]
+        st.dataframe(all_disp, use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("Suggested additional tests")
+    top_canon_r = top3["canonical_diagnosis"].tolist()
+    lit_all_r   = load_literature_all()
+    suggestions = _suggest_markers(pos_snap, neg_snap, top_canon_r, lit_all_r)
+    if not suggestions:
+        st.info("No discriminating markers found in the literature for the top differentials.")
+    else:
+        n1 = diag_names_r.get(top_canon_r[0], top_canon_r[0])
+        n2 = diag_names_r.get(top_canon_r[1], top_canon_r[1]) if len(top_canon_r) > 1 else ""
+        st.caption(f"Markers that best discriminate between {n1} and {n2}, based on literature.")
+        sug_df = pd.DataFrame(suggestions)
+        sug_df.columns = ["Marker", f"Expected in {n1}", f"Expected in {n2}", "Power"]
+        sug_df["Power"] = sug_df["Power"].map(lambda x: f"{x:.0f}")
+        st.dataframe(sug_df, use_container_width=True, hide_index=True)
+
+    # ── Molecular pathology guidance ──────────────────────────────────────────
+    st.divider()
+    st.subheader("Molecular pathology guidance")
+
+    # If a patient_id was passed, show their existing molecular result first
+    if patient_id:
+        mol_existing = load_molecular_tests(patient_id)
+        morph_note   = load_morphology_note(patient_id)
+        if not mol_existing.empty or morph_note:
+            st.markdown("**Results already on file for this case:**")
+            if morph_note:
+                st.markdown(
+                    f'<span style="background:#fef9c3;padding:3px 8px;border-radius:4px;'
+                    f'font-size:0.85rem">Morphology: {morph_note}</span>',
+                    unsafe_allow_html=True,
+                )
+            for _, mr in mol_existing.iterrows():
+                pos_html = (
+                    f'<span style="background:#dcfce7;padding:2px 8px;border-radius:4px;'
+                    f'font-size:0.82rem;color:#166534">Positive: {mr["positive_result"]}</span> '
+                    if mr.get("positive_result") else ""
+                )
+                neg_html = (
+                    f'<span style="background:#fee2e2;padding:2px 8px;border-radius:4px;'
+                    f'font-size:0.82rem;color:#991b1b">Not detected: {mr["negative_probes"]}</span>'
+                    if mr.get("negative_probes") else ""
+                )
+                st.markdown(
+                    f'<span style="font-size:0.82rem;color:#64748b">Test: {mr["test_type"]}</span> '
+                    + pos_html + neg_html,
+                    unsafe_allow_html=True,
+                )
+            st.write("")
+
+    # For each top differential, show recommended molecular test from knowledge base
+    ROLE_ICON = {"confirmatory": "🔬", "supportive": "🧪", "exclusion": "⊘"}
+    ROLE_COLOR = {"confirmatory": "#0f766e", "supportive": "#4f46e5", "exclusion": "#dc2626"}
+
+    any_mol_guidance = False
+    for _, row in top3.iterrows():
+        canon = row["canonical_diagnosis"]
+        name  = row["display_name"]
+        mol_kb = load_molecular_dx_markers(canon)
+        if mol_kb.empty:
+            continue
+        any_mol_guidance = True
+        st.markdown(f"**{name}**")
+        for _, kr in mol_kb.iterrows():
+            role  = kr["role"]
+            icon  = ROLE_ICON.get(role, "")
+            color = ROLE_COLOR.get(role, "#374151")
+            pct_str = f" ({int(kr['prevalence_pct'])}% of cases)" if pd.notna(kr.get("prevalence_pct")) and kr.get("prevalence_pct") else ""
+            st.markdown(
+                f'<div style="border-left:3px solid {color};padding:6px 12px;'
+                f'margin:4px 0;border-radius:0 6px 6px 0;background:#f8fafc">'
+                f'<span style="font-size:0.72rem;font-weight:700;color:{color};'
+                f'text-transform:uppercase">{icon} {role}</span><br>'
+                f'<span style="font-size:0.88rem;font-weight:600">{kr["alteration"]}</span>'
+                f'<span style="font-size:0.8rem;color:#6b7280"> via {kr["test_type"]}{pct_str}</span><br>'
+                f'<span style="font-size:0.78rem;color:#6b7280">{kr["note"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        st.write("")
+
+    if not any_mol_guidance:
+        st.info(
+            "No molecular testing guidance available in the knowledge base for the top differentials. "
+            "This may mean the diagnosis is confirmed on morphology and IHC alone."
+        )
+
+
 # ── Shared UI helpers ──────────────────────────────────────────────────────────
 
 OUTCOME_COLORS = {
@@ -868,7 +1029,7 @@ with st.sidebar:
 
 if tab_choice == "Diagnosis Panel":
     disp = diag_meta["display_name"]
-    section_header(f"Marker Panel — {disp}",
+    section_header(f"Marker Panel: {disp}",
                    f"Pipeline-extracted IHC marker frequencies · n = {diag_meta['n_gt_cases']} cases")
 
     col1, col2, col3 = st.columns(3)
@@ -887,7 +1048,7 @@ if tab_choice == "Diagnosis Panel":
 
     st.divider()
 
-    # Controls — row 1
+    # Controls: row 1
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
         outcome_filter = st.multiselect(
@@ -901,7 +1062,7 @@ if tab_choice == "Diagnosis Panel":
         show_gt  = st.checkbox("Overlay ground truth", value=False)
         show_ki67 = st.checkbox("Show Ki-67 index", value=True)
 
-    # Controls — row 2: optional marker filter
+    # Controls: row 2: optional marker filter
     # Use the canonical RNOH whitelist intersected with what actually appears
     # for this diagnosis, so the dropdown only shows valid, relevant markers.
     markers_in_diag = set(freq["marker"].unique())
@@ -977,7 +1138,7 @@ if tab_choice == "Diagnosis Panel":
         barmode="group",
         color_discrete_map=OVERLAY_COLORS,
         labels={"pct": "% of cases", "marker": "Marker", "source_label": "Source"},
-        title=f"Marker frequencies{title_suffix} — {disp} (n={diag_meta['n_gt_cases']})",
+        title=f"Marker frequencies{title_suffix}: {disp} (n={diag_meta['n_gt_cases']})",
         height=max(400, n_shown * (40 if show_gt else 26)),
     )
     fig.update_layout(
@@ -995,7 +1156,7 @@ if tab_choice == "Diagnosis Panel":
         ki67_df = load_ki67(selected_diag)
         if not ki67_df.empty:
             st.divider()
-            st.subheader(f"Ki-67 proliferation index — {disp}")
+            st.subheader(f"Ki-67 proliferation index: {disp}")
             st.caption(f"{len(ki67_df)} cases with Ki-67 extracted")
             fig_ki = px.histogram(
                 ki67_df, x="ki67_pct", nbins=30,
@@ -1064,7 +1225,7 @@ if tab_choice == "Diagnosis Panel":
                 orientation="h",
                 color_discrete_map=OUTCOME_COLORS,
                 labels={"pct": "% of cases", "marker": "Marker", "outcome": "Outcome"},
-                title=f"Marker frequencies — {disp} | {sel_sub} (n={n_sub_lms})",
+                title=f"Marker frequencies: {disp} | {sel_sub} (n={n_sub_lms})",
                 height=max(350, top_n_lms * 26),
             )
             fig_sub_lms.update_layout(
@@ -1082,7 +1243,7 @@ if tab_choice == "Diagnosis Panel":
     mol_pos_dp = load_molecular_positives(selected_diag)
     if not mol_pos_dp.empty:
         st.divider()
-        st.subheader("Molecular findings — confirmed fusions & rearrangements")
+        st.subheader("Molecular findings: confirmed fusions & rearrangements")
         st.caption(
             f"Positive molecular results recorded for {disp} cases in the institutional dataset."
         )
@@ -1093,7 +1254,7 @@ if tab_choice == "Diagnosis Panel":
             orientation="h",
             color_discrete_sequence=["#6366f1"],
             labels={"n_cases": "Cases confirmed", "positive_result": "Fusion / alteration"},
-            title=f"Confirmed molecular findings — {disp}",
+            title=f"Confirmed molecular findings: {disp}",
             height=max(280, len(mol_pos_dp) * 46),
         )
         fig_mol.update_layout(
@@ -1109,7 +1270,7 @@ if tab_choice == "Diagnosis Panel":
 
 elif tab_choice == "Literature Comparison":
     disp = diag_meta["display_name"]
-    section_header(f"Literature Comparison — {disp}",
+    section_header(f"Literature Comparison: {disp}",
                    "Institutional pipeline rates vs published expected IHC profiles")
 
     lit_df, total_cases = load_literature_comparison(selected_diag)
@@ -1122,7 +1283,7 @@ elif tab_choice == "Literature Comparison":
             f"against published IHC profiles."
         )
 
-        # Delta: compare tested_pct vs literature (fairer — both based on tested cases)
+        # Delta: compare tested_pct vs literature (fairer: both based on tested cases)
         # Fall back to our_pct if marker was never tested (tested_pct is None)
         lit_df["delta"] = lit_df.apply(
             lambda r: round((r["tested_pct"] if r["tested_pct"] is not None else 0) - r["lit_pct"], 1),
@@ -1159,7 +1320,7 @@ elif tab_choice == "Literature Comparison":
         )
         st.divider()
 
-        # Grouped bar chart — three bars: Literature, Institutional (all cases), Institutional (tested only)
+        # Grouped bar chart: three bars: Literature, Institutional (all cases), Institutional (tested only)
         plot_rows = []
         for _, row in lit_df.iterrows():
             label = f"{row['marker']} ({row['expected_outcome']})"
@@ -1197,7 +1358,7 @@ elif tab_choice == "Literature Comparison":
             },
             labels={"pct": "% of cases", "marker_label": "Marker (expected outcome)",
                     "source": "Source", "hover": ""},
-            title=f"Institutional vs literature — {disp}",
+            title=f"Institutional vs literature: {disp}",
             height=max(400, len(lit_df) * 55),
         )
         fig.update_layout(
@@ -1222,7 +1383,7 @@ elif tab_choice == "Literature Comparison":
                 "Below": "#dc2626",
             },
             labels={"delta": "Institutional (tested) minus Literature (%)", "marker": "Marker"},
-            title="Deviation from literature — tested cases only (positive = higher than expected)",
+            title="Deviation from literature: tested cases only (positive = higher than expected)",
             height=max(350, len(delta_df) * 30),
         )
         fig_delta.add_vline(x=0, line_dash="dash", line_color="gray")
@@ -1238,7 +1399,7 @@ elif tab_choice == "Literature Comparison":
         st.subheader("Detailed comparison table")
         table_df = lit_df.copy()
         table_df["tested_pct_display"] = table_df["tested_pct"].apply(
-            lambda v: f"{v}%" if v is not None else "—"
+            lambda v: f"{v}%" if v is not None else "-"
         )
         table_df["coverage_display"] = table_df.apply(
             lambda r: f"{r['coverage_pct']}% ({int(r['tested_n'])}/{total_cases})", axis=1
@@ -1430,7 +1591,7 @@ if tab_choice == "Case Browser":
 
 if tab_choice == "Fusion Browser":
     section_header("Fusion Browser",
-                   "Molecular findings — confirmed diagnoses only")
+                   "Molecular findings: confirmed diagnoses only")
 
     con_fb        = get_connection()
     diag_names_fb = load_diagnoses().set_index("canonical_diagnosis")["display_name"].to_dict()
@@ -1553,7 +1714,7 @@ if tab_choice == "Fusion Browser":
                     color_discrete_map={"positive": "#3b82f6", "negative": "#f87171"},
                     color_discrete_sequence=px.colors.qualitative.Set2,
                     labels={"n_cases": "Cases", "short_name": "Diagnosis", "outcome": "Outcome"},
-                    title=f"{sel_gene_fb} — cases by diagnosis",
+                    title=f"{sel_gene_fb}: cases by diagnosis",
                     height=max(320, n_diags_gene * 52),
                 )
                 fig_gene.update_layout(
@@ -1645,7 +1806,7 @@ if tab_choice == "Fusion Browser":
                         color_discrete_map={"positive": "#3b82f6", "negative": "#f87171"},
                         labels={"n_cases": "Cases", "detail_label": "Specific finding",
                                 "gene": "Gene", "outcome": "Outcome"},
-                        title=f"Molecular findings (detailed) — {sel_diag_fb}",
+                        title=f"Molecular findings (detailed): {sel_diag_fb}",
                         height=max(320, len(_detail_agg) * 36),
                         color_discrete_sequence=px.colors.qualitative.Set2,
                     )
@@ -1670,7 +1831,7 @@ if tab_choice == "Fusion Browser":
                         color_discrete_map={"positive": "#3b82f6", "negative": "#f87171"},
                         color_discrete_sequence=[_single_color],
                         labels={"n_cases": "Cases", "detail_label": "Finding", "outcome": "Outcome"},
-                        title=f"Molecular findings — {sel_diag_fb}",
+                        title=f"Molecular findings: {sel_diag_fb}",
                         height=max(320, _grouped_agg["detail_label"].nunique() * 40),
                     )
 
@@ -1805,7 +1966,7 @@ if tab_choice == "Marker Browser":
                 orientation="h",
                 barmode="group",
                 labels={"pct": "% of cases", "display_name": "", "outcome": "Outcome"},
-                title=f"{sel_marker_mb} — positive vs negative rate by diagnosis",
+                title=f"{sel_marker_mb}: positive vs negative rate by diagnosis",
             )
             fig_mb.update_layout(
                 yaxis={"categoryorder": "array", "categoryarray": y_order},
@@ -1888,7 +2049,7 @@ if tab_choice == "Pipeline Runner":
         )
     else:
         st.caption(
-            "ClinicalBERT checkpoint not found — running rule-based extraction only. "
+            "ClinicalBERT checkpoint not found: running rule-based extraction only. "
             "Run `python 04_clinicalbert.py --train --full` to generate the model."
         )
 
@@ -1960,7 +2121,7 @@ if tab_choice == "Pipeline Runner":
     if st.session_state.get("pr_ran"):
         st.divider()
         mode_label = "Hybrid (ClinicalBERT + rules)" if st.session_state.get("pr_mode") == "hybrid" else "Rule-based only"
-        st.subheader(f"Extracted markers (editable) — {mode_label}")
+        st.subheader(f"Extracted markers (editable): {mode_label}")
 
         all_canon = sorted(CANONICAL_MARKERS)
         init_pos  = st.session_state.get("pr_init_pos", [])
@@ -2037,166 +2198,6 @@ if tab_choice == "Pipeline Runner":
                 key_prefix="pr",
             )
 
-
-def _render_ddx_results(ddx_df: "pd.DataFrame", pos_snap: list, neg_snap: list,
-                        key_prefix: str = "da", patient_id: str | None = None) -> None:
-    """Shared DDx results renderer used by both Pipeline Runner and Diagnostic Assistant."""
-    diag_names_r = load_diagnoses().set_index("canonical_diagnosis")["display_name"].to_dict()
-    top3 = ddx_df.head(3)
-
-    st.subheader("Top 3 differential diagnoses")
-    for rank, (_, row) in enumerate(top3.iterrows(), start=1):
-        rank_label   = {1: "1st", 2: "2nd", 3: "3rd"}[rank]
-        border_color = {1: "#0f766e", 2: "#4f46e5", 3: "#0891b2"}[rank]
-        rank_bg      = {1: "#f0fdf4", 2: "#eef2ff", 3: "#f0f9ff"}[rank]
-        n_cov  = int(row.get("covered", 0))
-        n_tot  = int(row.get("n_input", 0))
-        st.markdown(
-            f'<div style="border-left:5px solid {border_color};'
-            f'padding:14px 18px;border-radius:8px;margin-bottom:10px;'
-            f'background:{rank_bg};box-shadow:0 1px 4px rgba(0,0,0,0.06)">'
-            f'<span style="font-size:0.7rem;font-weight:700;color:{border_color};'
-            f'text-transform:uppercase;letter-spacing:0.08em">'
-            f'{rank_label} DIFFERENTIAL</span>'
-            f'<span style="font-size:0.75rem;color:#9ca3af;margin-left:12px">'
-            f'{n_cov} of {n_tot} markers in literature</span><br>'
-            f'<span style="font-size:1.2rem;font-weight:700;color:#0f172a">{row["display_name"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-        sc1, sc2 = st.columns(2)
-        with sc1:
-            lit_val = row["lit_score"]
-            lit_str = f"{lit_val:.0f}%" if pd.notna(lit_val) else "n/a"
-            st.metric(
-                "Literature score", lit_str,
-                help="Weighted match rate against published marker profiles for this diagnosis. "
-                     "High-frequency markers count more. "
-                     "Ranking also penalises low coverage (few of your markers appear in literature).",
-            )
-        with sc2:
-            dat_val = row["data_score"]
-            dat_str = f"{dat_val:.0f}%" if pd.notna(dat_val) else "n/a"
-            st.metric(
-                "Our data score", dat_str,
-                help="Match rate against our institutional pipeline data. "
-                     "Shown only when >= 5 cases with this diagnosis were tested for at least "
-                     "2 of your provided markers. 'n/a' means insufficient institutional data.",
-            )
-        for markers_list, label, icon, css_class in [
-            (row["supporting"],    "Literature supports",    "✓", "badge-pos"),
-            (row["contradicting"], "Literature contradicts", "✗", "badge-neg"),
-        ]:
-            if markers_list:
-                st.markdown(
-                    f'<span style="font-size:0.78rem;color:#64748b">'
-                    f'{icon} <em>{label}</em> (% = published frequency for this diagnosis):</span><br>'
-                    + " ".join(
-                        f'<span class="{css_class}">{m}</span>'
-                        for m in markers_list
-                    ),
-                    unsafe_allow_html=True,
-                )
-        st.write("")
-
-    with st.expander("All diagnoses scored"):
-        all_disp = ddx_df[["display_name", "lit_score", "data_score",
-                            "combined_score", "covered", "n_input"]].copy()
-        all_disp["coverage"] = all_disp.apply(
-            lambda r: f"{int(r['covered'])}/{int(r['n_input'])}", axis=1
-        )
-        all_disp = all_disp[["display_name", "lit_score", "data_score",
-                              "combined_score", "coverage"]]
-        all_disp.columns = ["Diagnosis", "Lit score (%)", "Data score (%)",
-                             "Combined (rank)", "Lit coverage"]
-        st.dataframe(all_disp, use_container_width=True, hide_index=True)
-
-    st.divider()
-    st.subheader("Suggested additional tests")
-    top_canon_r = top3["canonical_diagnosis"].tolist()
-    lit_all_r   = load_literature_all()
-    suggestions = _suggest_markers(pos_snap, neg_snap, top_canon_r, lit_all_r)
-    if not suggestions:
-        st.info("No discriminating markers found in the literature for the top differentials.")
-    else:
-        n1 = diag_names_r.get(top_canon_r[0], top_canon_r[0])
-        n2 = diag_names_r.get(top_canon_r[1], top_canon_r[1]) if len(top_canon_r) > 1 else ""
-        st.caption(f"Markers that best discriminate between {n1} and {n2}, based on literature.")
-        sug_df = pd.DataFrame(suggestions)
-        sug_df.columns = ["Marker", f"Expected in {n1}", f"Expected in {n2}", "Power"]
-        sug_df["Power"] = sug_df["Power"].map(lambda x: f"{x:.0f}")
-        st.dataframe(sug_df, use_container_width=True, hide_index=True)
-
-    # ── Molecular pathology guidance ──────────────────────────────────────────
-    st.divider()
-    st.subheader("Molecular pathology guidance")
-
-    # If a patient_id was passed, show their existing molecular result first
-    if patient_id:
-        mol_existing = load_molecular_tests(patient_id)
-        morph_note   = load_morphology_note(patient_id)
-        if not mol_existing.empty or morph_note:
-            st.markdown("**Results already on file for this case:**")
-            if morph_note:
-                st.markdown(
-                    f'<span style="background:#fef9c3;padding:3px 8px;border-radius:4px;'
-                    f'font-size:0.85rem">Morphology: {morph_note}</span>',
-                    unsafe_allow_html=True,
-                )
-            for _, mr in mol_existing.iterrows():
-                pos_html = (
-                    f'<span style="background:#dcfce7;padding:2px 8px;border-radius:4px;'
-                    f'font-size:0.82rem;color:#166534">Positive: {mr["positive_result"]}</span> '
-                    if mr.get("positive_result") else ""
-                )
-                neg_html = (
-                    f'<span style="background:#fee2e2;padding:2px 8px;border-radius:4px;'
-                    f'font-size:0.82rem;color:#991b1b">Not detected: {mr["negative_probes"]}</span>'
-                    if mr.get("negative_probes") else ""
-                )
-                st.markdown(
-                    f'<span style="font-size:0.82rem;color:#64748b">Test: {mr["test_type"]}</span> '
-                    + pos_html + neg_html,
-                    unsafe_allow_html=True,
-                )
-            st.write("")
-
-    # For each top differential, show recommended molecular test from knowledge base
-    ROLE_ICON = {"confirmatory": "🔬", "supportive": "🧪", "exclusion": "⊘"}
-    ROLE_COLOR = {"confirmatory": "#0f766e", "supportive": "#4f46e5", "exclusion": "#dc2626"}
-
-    any_mol_guidance = False
-    for _, row in top3.iterrows():
-        canon = row["canonical_diagnosis"]
-        name  = row["display_name"]
-        mol_kb = load_molecular_dx_markers(canon)
-        if mol_kb.empty:
-            continue
-        any_mol_guidance = True
-        st.markdown(f"**{name}**")
-        for _, kr in mol_kb.iterrows():
-            role  = kr["role"]
-            icon  = ROLE_ICON.get(role, "")
-            color = ROLE_COLOR.get(role, "#374151")
-            pct_str = f" ({int(kr['prevalence_pct'])}% of cases)" if pd.notna(kr.get("prevalence_pct")) and kr.get("prevalence_pct") else ""
-            st.markdown(
-                f'<div style="border-left:3px solid {color};padding:6px 12px;'
-                f'margin:4px 0;border-radius:0 6px 6px 0;background:#f8fafc">'
-                f'<span style="font-size:0.72rem;font-weight:700;color:{color};'
-                f'text-transform:uppercase">{icon} {role}</span><br>'
-                f'<span style="font-size:0.88rem;font-weight:600">{kr["alteration"]}</span>'
-                f'<span style="font-size:0.8rem;color:#6b7280"> via {kr["test_type"]}{pct_str}</span><br>'
-                f'<span style="font-size:0.78rem;color:#6b7280">{kr["note"]}</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        st.write("")
-
-    if not any_mol_guidance:
-        st.info(
-            "No molecular testing guidance available in the knowledge base for the top differentials. "
-            "This may mean the diagnosis is confirmed on morphology and IHC alone."
-        )
 
 
 # ── View 8: Diagnostic Assistant ──────────────────────────────────────────────

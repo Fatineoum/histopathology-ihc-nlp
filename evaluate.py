@@ -149,7 +149,7 @@ def print_by_diagnosis(case_df, label, min_cases=10):
     """Print micro-averaged F1 per diagnosis, sorted descending. Only diagnoses
     with at least `min_cases` in the ground truth are shown."""
     print(f"\n{'=' * 70}")
-    print(f"  {label} — per-diagnosis breakdown (min {min_cases} cases)")
+    print(f"  {label}: per-diagnosis breakdown (min {min_cases} cases)")
     print(f"{'=' * 70}")
     print(f"  {'Diagnosis':<40s}  {'Cases':>5}  {'Pos F1':>7}  {'Neg F1':>7}  {'Overall F1':>10}")
     print(f"  {'-' * 66}")

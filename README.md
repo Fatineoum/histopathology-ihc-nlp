@@ -11,7 +11,7 @@ Submitted 11 October 2026 as part of the MSc Computer Science programme at the U
 
 An end-to-end NLP pipeline for extracting structured immunohistochemistry (IHC) and molecular findings from free-text histopathology reports, with a prototype decision-support dashboard for soft tissue and bone tumour pathology.
 
-All processing runs on-premise under institutional data governance and GDPR constraints — no patient data is sent to external APIs or cloud services.
+All processing runs on-premise under institutional data governance and GDPR constraints: no patient data is sent to external APIs or cloud services.
 
 ## Pipeline Architecture
 
@@ -34,7 +34,7 @@ Evaluation on a stratified held-out test set of 809 cases (15% of the 5,389-case
 | Pipeline | Pos F1 | Neg F1 | Overall F1 | Evaluation set |
 |---|---|---|---|---|
 | Rule-based only | 0.737 | 0.854 | 0.803 | Pilot (LMS HG, inflated) |
-| Rule-based only | — | — | 0.699 | Full dataset, normalised |
+| Rule-based only | n/a |: | 0.699 | Full dataset, normalised |
 | ClinicalBERT (8 epochs) | 0.870 | 0.874 | **0.873** | Held-out test set, 809 cases |
 | ClinicalBERT (8 epochs) | 0.912 | 0.904 | 0.907 | Full dataset (inflated) |
 | Hybrid (BERT-primary) | 0.844 | 0.876 | 0.864 | Full dataset, normalised |

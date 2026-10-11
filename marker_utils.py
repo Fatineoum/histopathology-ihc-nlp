@@ -839,7 +839,7 @@ def normalise_marker(name: str) -> str:
     if _STOP_WORD_RE.search(name):
         return ""
 
-    # Step 11: canonical whitelist — reject anything not on the RNOH antibody list
+    # Step 11: canonical whitelist: reject anything not on the RNOH antibody list
     if name not in CANONICAL_MARKERS:
         return ""
 

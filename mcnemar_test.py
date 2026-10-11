@@ -1,6 +1,6 @@
 """
 mcnemar_test.py
-IHC NLP Project : McNemar's Test — Rule-based vs ClinicalBERT (8 epochs)
+IHC NLP Project : McNemar's Test: Rule-based vs ClinicalBERT (8 epochs)
 ------------------------------------------------------------------------
 Compares the two pipelines on the held-out test set of 809 cases.
 A case is 'correct' if F1 == 1.0 (exact match on both pos and neg markers).

@@ -136,12 +136,12 @@ def main():
     per_marker, false_pos, false_neg = analyse(df, mod)
 
     print(f"\n{'=' * 60}")
-    print("  ClinicalBERT (8 epochs) — False Positives (hallucinated)")
+    print("  ClinicalBERT (8 epochs): False Positives (hallucinated)")
     print(f"{'=' * 60}")
     print_top(false_pos, "Most hallucinated markers", args.top_n)
 
     print(f"\n{'=' * 60}")
-    print("  ClinicalBERT (8 epochs) — False Negatives (missed)")
+    print("  ClinicalBERT (8 epochs): False Negatives (missed)")
     print(f"{'=' * 60}")
     print_top(false_neg, "Most missed markers", args.top_n)
 
